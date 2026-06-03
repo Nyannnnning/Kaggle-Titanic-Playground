@@ -1,0 +1,10 @@
+Deck,DeckOrdinal,ApproxVerticalDistanceToBoatDeck,SpatialAccessTier,CabinZone,ClassArea,LifeboatAccessScore,StaircaseAccessScore,Notes
+Boat,0,0,near_boat_deck,top_deck,lifeboat_area,1.0,0.9,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+A,1,1,near_boat_deck,upper_forward_mid,mostly_first_class,0.9,0.85,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+B,2,2,upper_deck,upper_mid,mostly_first_class,0.8,0.8,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+C,3,3,upper_deck,upper_mid_aft,mixed_first_second,0.7,0.75,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+D,4,4,middle_deck,middle_mid,mixed_first_second,0.6,0.65,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+E,5,5,middle_deck,middle_lower,mixed_all_classes,0.45,0.55,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+F,6,6,lower_deck,lower_mid,mixed_second_third,0.3,0.4,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+G,7,7,lower_deck,lower_low,mostly_third_class,0.2,0.3,"provisional; manually review against historical deck plans; not exact walking distance; not exact lifeboat access"
+Unknown,,,,unknown,unknown,,,"provisional; missing cabin/deck record; not exact walking distance; not exact lifeboat access"
