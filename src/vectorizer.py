@@ -84,6 +84,30 @@ def human_force_label(feature_name: str, row: pd.Series) -> str:
         return f"Family Size {_format_number(row.get('FamilySize'))}"
     if feature_name == "num__IsAlone":
         return "Traveling Alone" if row.get("IsAlone") == 1 else "Traveling With Family"
+    if feature_name == "num__FarePerFamilyMember":
+        return f"Fare Per Family Member {_format_number(row.get('FarePerFamilyMember'))}"
+    if feature_name == "num__TicketGroupSize":
+        return f"Ticket Group Size {_format_number(row.get('TicketGroupSize'))}"
+    if feature_name == "num__FamilyGroupSize":
+        return f"Family Group Size {_format_number(row.get('FamilyGroupSize'))}"
+    if feature_name == "num__PclassAgeInteraction":
+        return "Pclass x Age"
+    if feature_name == "num__PclassFareInteraction":
+        return "Pclass x Fare"
+    if feature_name == "num__IsChild":
+        return "Child" if row.get("IsChild") == 1 else "Not Child"
+    if feature_name == "num__IsAdultMale":
+        return "Adult Male" if row.get("IsAdultMale") == 1 else "Not Adult Male"
+    if feature_name == "num__IsMother":
+        return "Mother Proxy" if row.get("IsMother") == 1 else "Not Mother Proxy"
+    if feature_name == "num__IsFirstClassFemale":
+        return (
+            "First Class Female"
+            if row.get("IsFirstClassFemale") == 1
+            else "Not First Class Female"
+        )
+    if feature_name == "num__IsThirdClassMale":
+        return "Third Class Male" if row.get("IsThirdClassMale") == 1 else "Not Third Class Male"
     if feature_name == "num__DeckOrdinal":
         return f"Deck Vertical Proxy {_format_number(row.get('DeckOrdinal'))}"
     if feature_name == "num__ApproxVerticalDistanceToBoatDeck":
@@ -115,6 +139,38 @@ def human_force_label(feature_name: str, row: pd.Series) -> str:
     title = _cat_value(feature_name, "Title")
     if title:
         return f"Title {title}"
+
+    age_bucket = _cat_value(feature_name, "AgeBin")
+    if age_bucket:
+        return f"Age Bin {age_bucket}"
+
+    fare_bucket = _cat_value(feature_name, "FareBin")
+    if fare_bucket:
+        return f"Fare Bin {fare_bucket}"
+
+    family_bucket = _cat_value(feature_name, "FamilySizeBin")
+    if family_bucket:
+        return f"Family Size Bin {family_bucket}"
+
+    ticket_prefix = _cat_value(feature_name, "TicketPrefix")
+    if ticket_prefix:
+        return f"Ticket Prefix {ticket_prefix}"
+
+    sex_pclass = _cat_value(feature_name, "SexPclass")
+    if sex_pclass:
+        return f"Sex x Class {sex_pclass}"
+
+    title_pclass = _cat_value(feature_name, "TitlePclass")
+    if title_pclass:
+        return f"Title x Class {title_pclass}"
+
+    age_bin_sex = _cat_value(feature_name, "AgeBinSex")
+    if age_bin_sex:
+        return f"Age Bin x Sex {age_bin_sex}"
+
+    fare_bin_pclass = _cat_value(feature_name, "FareBinPclass")
+    if fare_bin_pclass:
+        return f"Fare Bin x Class {fare_bin_pclass}"
 
     deck = _cat_value(feature_name, "Deck")
     if deck:

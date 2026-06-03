@@ -14,3 +14,6 @@ data/derived/*
 
 reports/*
 !reports/.gitkeep
+
+submissions/*.csv
+!submissions/.gitkeep

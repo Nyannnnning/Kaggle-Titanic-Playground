@@ -1,9 +1,9 @@
 # TODO
 
-Future work after the first Survival Geometry pipeline is stable:
+Future work after the Survival Geometry and XGBoost/SHAP pipeline is stable:
 
-- Add XGBoost as an optional model.
-- Add SHAP for passenger-level contribution decomposition.
+- Tune XGBoost hyperparameters.
+- Compare `core`, `clean`, and `full` feature sets with cross-validation.
 - Add PCA or UMAP for visual geometry inspection.
 - Test whether centroid-distance features improve prediction.
 - Build a Titanic ontology graph for passenger, class, deck, family, ticket, and language relationships.

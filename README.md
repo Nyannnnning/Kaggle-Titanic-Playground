@@ -81,6 +81,12 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+For XGBoost and SHAP experiments, install the optional dependency set:
+
+```bash
+pip install -r requirements-xgboost.txt
+```
+
 ## Data
 
 Put Kaggle's Titanic CSV files in `data/`:
@@ -95,10 +101,77 @@ data/gender_submission.csv
 
 ```bash
 python build_augmented_data.py
-python train.py --model-type logistic_score
+python train.py --model-type logistic_score --feature-set clean
 python predict.py --input data/test.csv --output submission.csv
 python explore.py
 ```
+
+## Feature Sets
+
+The default feature set is `clean`.
+
+```text
+core   = stable Titanic fields only
+clean  = default; removes uncertain weak proxies
+full   = exploration mode; includes all provisional proxy signals
+```
+
+`clean` filters out:
+
+```text
+LifeboatAccessScore
+StaircaseAccessScore
+CabinZone
+ClassArea
+OriginInferenceConfidence
+InferredOriginRegion
+InferredPrimaryLanguage
+EnglishComprehensionProxy
+LanguageBarrierRisk
+```
+
+These features are not deleted from the entity layer. They are only excluded from the default model feature set because they are weak or provisional proxies.
+
+## Advanced Features
+
+The clean feature set includes stable engineered signals:
+
+- `TicketGroupSize`
+- `FamilyGroupSize`
+- `AgeBin`
+- `FareBin`
+- `FamilySizeBin`
+- `FarePerFamilyMember`
+- `SexPclass`
+- `TitlePclass`
+- `AgeBinSex`
+- `FareBinPclass`
+- `PclassAgeInteraction`
+- `PclassFareInteraction`
+- `IsChild`
+- `IsAdultMale`
+- `IsMother`
+- `IsFirstClassFemale`
+- `IsThirdClassMale`
+
+`TicketGroupSize` and `FamilyGroupSize` are learned from the training fold and then applied to validation/test data, so validation does not compute its own local group map.
+
+## Cross-Validation
+
+Training runs 5-fold stratified cross-validation by default:
+
+```bash
+python train.py --model-type logistic_score --feature-set clean --cv-folds 5
+python train.py --model-type xgboost --feature-set clean --cv-folds 5
+```
+
+Output:
+
+```text
+reports/cross_validation_scores.csv
+```
+
+Use `--cv-folds 0` to skip cross-validation during quick experiments.
 
 ## Model Types
 
@@ -132,6 +205,24 @@ HistGradientBoostingClassifier
 
 No XGBoost dependency is required.
 
+### `xgboost`
+
+Optional nonlinear model with SHAP analysis:
+
+```bash
+python train.py --model-type xgboost --feature-set clean
+```
+
+Outputs:
+
+```text
+reports/shap_summary.csv
+reports/passenger_shap_values.csv
+reports/passenger_shap_force_report.csv
+```
+
+For `xgboost`, `reports/passenger_force_report.csv` uses SHAP positive and negative forces.
+
 ### `random_forest_optional`
 
 Optional comparison model only.
@@ -156,6 +247,33 @@ PassengerId,Survived
 893,1
 894,0
 ```
+
+## Optimized Submission
+
+After reviewing public leaderboard gap risk, the recommended submission path is a conservative hybrid rule set:
+
+```bash
+python optimize_submission.py --strategy conservative_hybrid --output submission.csv
+```
+
+It starts from the gender baseline and only applies high-confidence overrides:
+
+- predict death for 3rd-class female passengers in large families
+- predict survival for male `Master` passengers in 1st/2nd class
+- predict survival for young 3rd-class male `Master` passengers in small families
+
+Outputs:
+
+```text
+submission.csv
+submissions/gender_baseline.csv
+submissions/conservative_hybrid.csv
+submissions/optimized_hybrid.csv
+reports/submission_strategy_audit.csv
+reports/submission_override_audit.csv
+```
+
+`optimized_hybrid` has higher train accuracy but is more aggressive and should be treated as an experiment.
 
 ## Survival Score
 
@@ -271,4 +389,3 @@ These are proxies only. They are not exact walking distance, exact lifeboat acce
 - `OriginInferenceConfidence`
 
 These are not personal identity claims. They are weak proxy features for exploratory modeling.
-

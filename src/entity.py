@@ -74,6 +74,7 @@ def passenger_entity(
                 "Name": raw_row.get("Name"),
                 "Sex": feature_row.get("Sex"),
                 "Age": feature_row.get("Age"),
+                "AgeBin": feature_row.get("AgeBin"),
                 "Title": feature_row.get("Title"),
             }
         ),
@@ -82,6 +83,8 @@ def passenger_entity(
                 "SibSp": feature_row.get("SibSp"),
                 "Parch": feature_row.get("Parch"),
                 "FamilySize": feature_row.get("FamilySize"),
+                "FamilySizeBin": feature_row.get("FamilySizeBin"),
+                "FamilyGroupSize": feature_row.get("FamilyGroupSize"),
                 "IsAlone": feature_row.get("IsAlone"),
             }
         ),
@@ -89,8 +92,27 @@ def passenger_entity(
             {
                 "Pclass": feature_row.get("Pclass"),
                 "Ticket": raw_row.get("Ticket"),
+                "TicketPrefix": feature_row.get("TicketPrefix"),
+                "TicketGroupSize": feature_row.get("TicketGroupSize"),
                 "Fare": feature_row.get("Fare"),
+                "FareBin": feature_row.get("FareBin"),
+                "FarePerFamilyMember": feature_row.get("FarePerFamilyMember"),
                 "Embarked": feature_row.get("Embarked"),
+            }
+        ),
+        "interactions": compact_dict(
+            {
+                "SexPclass": feature_row.get("SexPclass"),
+                "TitlePclass": feature_row.get("TitlePclass"),
+                "AgeBinSex": feature_row.get("AgeBinSex"),
+                "FareBinPclass": feature_row.get("FareBinPclass"),
+                "PclassAgeInteraction": feature_row.get("PclassAgeInteraction"),
+                "PclassFareInteraction": feature_row.get("PclassFareInteraction"),
+                "IsChild": feature_row.get("IsChild"),
+                "IsAdultMale": feature_row.get("IsAdultMale"),
+                "IsMother": feature_row.get("IsMother"),
+                "IsFirstClassFemale": feature_row.get("IsFirstClassFemale"),
+                "IsThirdClassMale": feature_row.get("IsThirdClassMale"),
             }
         ),
         "spatial": compact_dict(
@@ -128,8 +150,13 @@ def passenger_entity(
 def passenger_entities(
     raw_df: pd.DataFrame,
     force_report: pd.DataFrame | None = None,
+    feature_df: pd.DataFrame | None = None,
 ) -> list[dict[str, Any]]:
-    features = build_feature_frame(raw_df).reset_index(drop=True)
+    features = (
+        feature_df.reset_index(drop=True)
+        if feature_df is not None
+        else build_feature_frame(raw_df).reset_index(drop=True)
+    )
     force_by_id: dict[Any, pd.Series] = {}
     if force_report is not None and not force_report.empty:
         force_by_id = {
