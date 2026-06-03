@@ -8,6 +8,7 @@ venv/
 
 models/*.pkl
 submission.csv
+rule_mined_hybrid.csv
 
 data/derived/*
 !data/derived/.gitkeep

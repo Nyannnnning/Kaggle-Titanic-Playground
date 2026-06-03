@@ -7,8 +7,13 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from .age import add_age_object_features, fit_age_pclass_stats
+from .fare import add_fare_object_features
+from .name_object import add_name_object_features
 from .name_origin import NAME_ORIGIN_COLUMNS, add_name_origin_features
 from .spatial import SPATIAL_OUTPUT_COLUMNS, add_spatial_features
+from .ticket_group import add_ticket_group_features, fit_ticket_group_stats
+from .travel_group import add_travel_group_features, fit_travel_group_stats
 
 
 RARE_TITLES = {
@@ -40,15 +45,184 @@ BASE_NUMERIC_FEATURES = [
     "FamilySize",
     "IsAlone",
     "FarePerFamilyMember",
+    "FarePerTicketMember",
+    "FarePerFamilyTicketMember",
     "TicketGroupSize",
+    "TicketChildCount",
+    "TicketFemaleCount",
+    "TicketAdultMaleCount",
+    "TicketDistinctFamilyCount",
+    "TicketMaxFamilySize",
+    "TicketChildRatio",
+    "TicketFemaleRatio",
+    "TicketAdultMaleRatio",
+    "TicketHasChild",
+    "TicketHasFemale",
+    "TicketHasAdultMale",
+    "TicketHasFamily",
+    "TicketIsMixedSex",
     "FamilyGroupSize",
+    "FamilyTicketGroupSize",
+    "TicketFamilyMismatch",
+    "TicketFamilyDelta",
+    "HighRawFareLargeFamilyFlag",
+    "ZeroFareFlag",
     "PclassAgeInteraction",
     "PclassFareInteraction",
+    "AgeKnown",
+    "AgeMissing",
+    "AgeZWithinPclass",
+    "IsYoungWithinPclass",
+    "IsOldWithinPclass",
+    "IsOldMaleWithinPclass",
+    "IsYoungMasterWithinPclass",
     "IsChild",
     "IsAdultMale",
     "IsMother",
     "IsFirstClassFemale",
     "IsThirdClassMale",
+]
+
+AGE_RELATIVE_NUMERIC_FEATURES = {
+    "AgeZWithinPclass",
+    "IsYoungWithinPclass",
+    "IsOldWithinPclass",
+    "IsOldMaleWithinPclass",
+    "IsYoungMasterWithinPclass",
+}
+
+AGE_RELATIVE_CATEGORICAL_FEATURES = {
+    "AgeQuartileWithinPclass",
+    "AgeRelativeBucketWithinPclass",
+    "AgeRelativeBucketWithinPclassSex",
+}
+
+TICKET_GROUP_COMPOSITION_NUMERIC_FEATURES = {
+    "TicketChildCount",
+    "TicketFemaleCount",
+    "TicketAdultMaleCount",
+    "TicketDistinctFamilyCount",
+    "TicketMaxFamilySize",
+    "TicketChildRatio",
+    "TicketFemaleRatio",
+    "TicketAdultMaleRatio",
+    "TicketHasChild",
+    "TicketHasFemale",
+    "TicketHasAdultMale",
+    "TicketHasFamily",
+    "TicketIsMixedSex",
+}
+
+TICKET_GROUP_COMPOSITION_CATEGORICAL_FEATURES = {
+    "TicketCompositionType",
+    "TicketFamilyPattern",
+    "TicketChildFemalePattern",
+    "TicketChildCountBin",
+    "TicketFemaleCountBin",
+    "TicketChildRatioBin",
+    "TicketFemaleRatioBin",
+}
+
+TRAVEL_GROUP_NUMERIC_FEATURES = [
+    "SelfChildProxy",
+    "SelfFemaleProxy",
+    "SelfMaleProxy",
+    "SelfAdultMaleProxy",
+    "SelfMasterProxy",
+    "FamilyChildCount",
+    "FamilyFemaleCount",
+    "FamilyMaleCount",
+    "FamilyAdultMaleCount",
+    "FamilyMasterCount",
+    "FamilyChildRatio",
+    "FamilyFemaleRatio",
+    "FamilyAdultMaleRatio",
+    "FamilyHasChild",
+    "FamilyHasFemale",
+    "FamilyHasAdultMale",
+    "FamilyIsMixedSex",
+    "FamilyAccompanyingChildCount",
+    "FamilyAccompanyingFemaleCount",
+    "FamilyAccompanyingAdultMaleCount",
+    "FamilyTicketChildCount",
+    "FamilyTicketFemaleCount",
+    "FamilyTicketMaleCount",
+    "FamilyTicketAdultMaleCount",
+    "FamilyTicketMasterCount",
+    "FamilyTicketChildRatio",
+    "FamilyTicketFemaleRatio",
+    "FamilyTicketAdultMaleRatio",
+    "FamilyTicketHasChild",
+    "FamilyTicketHasFemale",
+    "FamilyTicketHasAdultMale",
+    "FamilyTicketIsMixedSex",
+    "FamilyTicketAccompanyingChildCount",
+    "FamilyTicketAccompanyingFemaleCount",
+    "FamilyTicketAccompanyingAdultMaleCount",
+    "CompanionGroupSize",
+    "CompanionChildCount",
+    "CompanionFemaleCount",
+    "CompanionAdultMaleCount",
+    "CompanionChildRatio",
+    "CompanionFemaleRatio",
+    "CompanionAdultMaleRatio",
+    "CompanionAccompanyingChildCount",
+    "CompanionAccompanyingFemaleCount",
+    "CompanionAccompanyingAdultMaleCount",
+]
+
+TRAVEL_GROUP_CATEGORICAL_FEATURES = [
+    "SelfGroupRole",
+    "FamilyChildCountBin",
+    "FamilyFemaleCountBin",
+    "FamilyAdultMaleCountBin",
+    "FamilyAccompanyingChildCountBin",
+    "FamilyAccompanyingFemaleCountBin",
+    "FamilyAccompanyingAdultMaleCountBin",
+    "FamilyChildRatioBin",
+    "FamilyFemaleRatioBin",
+    "FamilyAdultMaleRatioBin",
+    "FamilyChildFemalePattern",
+    "FamilyTicketChildCountBin",
+    "FamilyTicketFemaleCountBin",
+    "FamilyTicketAdultMaleCountBin",
+    "FamilyTicketAccompanyingChildCountBin",
+    "FamilyTicketAccompanyingFemaleCountBin",
+    "FamilyTicketAccompanyingAdultMaleCountBin",
+    "FamilyTicketChildRatioBin",
+    "FamilyTicketFemaleRatioBin",
+    "FamilyTicketAdultMaleRatioBin",
+    "FamilyTicketChildFemalePattern",
+    "PrimaryCompanionScope",
+    "PrimaryGroupChildFemalePattern",
+    "ChildFemaleCompanionPattern",
+    "CompanionChildCountBin",
+    "CompanionFemaleCountBin",
+    "CompanionAdultMaleCountBin",
+    "CompanionAccompanyingChildCountBin",
+    "CompanionAccompanyingFemaleCountBin",
+    "CompanionAccompanyingAdultMaleCountBin",
+    "CompanionChildRatioBin",
+    "CompanionFemaleRatioBin",
+    "CompanionAdultMaleRatioBin",
+]
+
+COMPACT_TRAVEL_GROUP_NUMERIC_FEATURES = [
+    "CompanionGroupSize",
+    "CompanionChildCount",
+    "CompanionFemaleCount",
+    "CompanionAdultMaleCount",
+    "CompanionAccompanyingChildCount",
+    "CompanionAccompanyingFemaleCount",
+    "CompanionAccompanyingAdultMaleCount",
+]
+
+COMPACT_TRAVEL_GROUP_CATEGORICAL_FEATURES = [
+    "SelfGroupRole",
+    "PrimaryCompanionScope",
+    "PrimaryGroupChildFemalePattern",
+    "ChildFemaleCompanionPattern",
+    "FamilyTicketChildFemalePattern",
 ]
 
 SPATIAL_NUMERIC_FEATURES = [
@@ -76,6 +250,7 @@ ORIGIN_NUMERIC_FEATURES = [
 
 NUMERIC_FEATURES = (
     BASE_NUMERIC_FEATURES
+    + TRAVEL_GROUP_NUMERIC_FEATURES
     + SPATIAL_NUMERIC_FEATURES
     + BINARY_FEATURES
     + ORIGIN_NUMERIC_FEATURES
@@ -94,7 +269,7 @@ CATEGORICAL_FEATURES = [
     "InferredPrimaryLanguage",
     "EnglishComprehensionProxy",
     "LanguageBarrierRisk",
-]
+] + TRAVEL_GROUP_CATEGORICAL_FEATURES
 
 ALL_MODEL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
@@ -105,17 +280,37 @@ CORE_CATEGORICAL_FEATURES = [
     "Embarked",
     "Title",
     "AgeBin",
+    "AgeQuartileWithinPclass",
+    "AgeRelativeBucketWithinPclass",
+    "AgeRelativeBucketWithinPclassSex",
+    "AgeMissingPatternByPclassTitle",
     "FareBin",
+    "FarePerTicketBin",
     "FamilySizeBin",
     "TicketPrefix",
+    "TicketCompositionType",
+    "TicketFamilyPattern",
+    "TicketChildFemalePattern",
+    "TicketChildCountBin",
+    "TicketFemaleCountBin",
+    "TicketChildRatioBin",
+    "TicketFemaleRatioBin",
+    "TravelPartyType",
+    "FareObjectInterpretation",
     "SexPclass",
     "TitlePclass",
     "AgeBinSex",
     "FareBinPclass",
+    "FarePerTicketBinPclass",
 ]
 
 CLEAN_NUMERIC_FEATURES = (
-    BASE_NUMERIC_FEATURES
+    [
+        feature
+        for feature in BASE_NUMERIC_FEATURES
+        if feature not in AGE_RELATIVE_NUMERIC_FEATURES
+        and feature not in TICKET_GROUP_COMPOSITION_NUMERIC_FEATURES
+    ]
     + CLEAN_SPATIAL_NUMERIC_FEATURES
     + BINARY_FEATURES
 )
@@ -125,13 +320,18 @@ CLEAN_CATEGORICAL_FEATURES = [
     "Embarked",
     "Title",
     "AgeBin",
+    "AgeMissingPatternByPclassTitle",
     "FareBin",
+    "FarePerTicketBin",
     "FamilySizeBin",
     "TicketPrefix",
+    "TravelPartyType",
+    "FareObjectInterpretation",
     "SexPclass",
     "TitlePclass",
     "AgeBinSex",
     "FareBinPclass",
+    "FarePerTicketBinPclass",
     "Deck",
     "SpatialAccessTier",
     "ClassDeckConsistency",
@@ -159,6 +359,11 @@ FEATURE_SETS = {
         "numeric": CLEAN_NUMERIC_FEATURES,
         "categorical": CLEAN_CATEGORICAL_FEATURES,
         "description": "Default set: removes uncertain language-origin proxies and hand-scored access proxies.",
+    },
+    "clean_group_objects": {
+        "numeric": CLEAN_NUMERIC_FEATURES + COMPACT_TRAVEL_GROUP_NUMERIC_FEATURES,
+        "categorical": CLEAN_CATEGORICAL_FEATURES + COMPACT_TRAVEL_GROUP_CATEGORICAL_FEATURES,
+        "description": "Clean set plus compact entity-style family/ticket companion object features.",
     },
     "full": {
         "numeric": NUMERIC_FEATURES,
@@ -364,8 +569,13 @@ def build_feature_frame(
     feature_set: str = "full",
     ticket_group_size_map: dict[str, int] | None = None,
     family_group_size_map: dict[str, int] | None = None,
+    family_ticket_group_size_map: dict[str, int] | None = None,
+    age_pclass_stats: dict | None = None,
+    ticket_group_stats: dict | None = None,
+    travel_group_stats: dict | None = None,
 ) -> pd.DataFrame:
     out = add_core_titanic_features(df)
+    out = add_name_object_features(out)
     external_path = Path(external_dir)
 
     spatial = add_spatial_features(out, external_dir=external_path)
@@ -381,9 +591,20 @@ def build_feature_frame(
         ticket_group_size_map = out["TicketNormalized"].value_counts().to_dict()
     if family_group_size_map is None:
         family_group_size_map = out["FamilyKey"].value_counts().to_dict()
+    if family_ticket_group_size_map is None:
+        family_ticket_key = out["FamilyKey"].astype(str) + "_" + out["TicketNormalized"].astype(str)
+        family_ticket_group_size_map = family_ticket_key.value_counts().to_dict()
 
     out["TicketGroupSize"] = out["TicketNormalized"].map(ticket_group_size_map).fillna(1)
     out["FamilyGroupSize"] = out["FamilyKey"].map(family_group_size_map).fillna(1)
+    out = add_ticket_group_features(out, ticket_group_stats=ticket_group_stats)
+    out = add_travel_group_features(out, travel_group_stats=travel_group_stats)
+    out = add_fare_object_features(
+        out,
+        ticket_group_size_map=ticket_group_size_map,
+        family_ticket_group_size_map=family_ticket_group_size_map,
+    )
+    out = add_age_object_features(out, age_pclass_stats=age_pclass_stats)
 
     return ensure_model_feature_columns(out, feature_set=feature_set)
 
@@ -407,7 +628,14 @@ class PassengerFeatureBuilder(BaseEstimator, TransformerMixin):
     def fit(self, X: pd.DataFrame, y=None):
         frame = add_core_titanic_features(X)
         self.ticket_group_size_map_ = frame["TicketNormalized"].value_counts().to_dict()
+        self.ticket_group_stats_ = fit_ticket_group_stats(frame)
+        self.travel_group_stats_ = fit_travel_group_stats(frame)
         self.family_group_size_map_ = frame["FamilyKey"].value_counts().to_dict()
+        family_ticket_key = frame["FamilyKey"].astype(str) + "_" + frame[
+            "TicketNormalized"
+        ].astype(str)
+        self.family_ticket_group_size_map_ = family_ticket_key.value_counts().to_dict()
+        self.age_pclass_stats_ = fit_age_pclass_stats(frame)
         return self
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -418,4 +646,12 @@ class PassengerFeatureBuilder(BaseEstimator, TransformerMixin):
             feature_set=self.feature_set,
             ticket_group_size_map=getattr(self, "ticket_group_size_map_", None),
             family_group_size_map=getattr(self, "family_group_size_map_", None),
+            family_ticket_group_size_map=getattr(
+                self,
+                "family_ticket_group_size_map_",
+                None,
+            ),
+            age_pclass_stats=getattr(self, "age_pclass_stats_", None),
+            ticket_group_stats=getattr(self, "ticket_group_stats_", None),
+            travel_group_stats=getattr(self, "travel_group_stats_", None),
         )

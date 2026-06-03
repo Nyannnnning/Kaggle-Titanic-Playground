@@ -1,0 +1,6 @@
+date,submission,strategy,public_score,notes
+2026-06-03,gender_baseline.csv,gender_baseline,0.76555,women survive men die baseline
+2026-06-03,xgboost_clean.csv,xgboost_clean,0.77272,regularized xgboost candidate
+2026-06-03,conservative_hybrid.csv,conservative_hybrid,0.78468,best previous audited hybrid
+2026-06-03,rule_mined_hybrid.csv,rule_mined_hybrid,0.78708,rule-mined P3 low-fare no-child-ticket override
+2026-06-03,rule_mined_female_no_child.csv,rule_mined_female_no_child,0.78708,A/B test vs rule_mined_hybrid; differs only on PassengerId 1201 and 1274
