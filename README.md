@@ -272,13 +272,3 @@ These are proxies only. They are not exact walking distance, exact lifeboat acce
 
 These are not personal identity claims. They are weak proxy features for exploratory modeling.
 
-## Future Work
-
-Do not add these in the first pass:
-
-- XGBoost
-- SHAP
-- passenger-level contribution decomposition
-- PCA / UMAP
-- Titanic ontology graph
-- full manual cabin layout reconstruction
