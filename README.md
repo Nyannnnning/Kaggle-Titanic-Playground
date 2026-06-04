@@ -18,8 +18,10 @@ The project treats each passenger as an entity, not just a CSV row. A passenger 
 - age object
 - family object
 - ticket object
+- ticket route object
 - ticket group object
 - fare object
+- group fate object
 - spatial object
 - language / origin proxy object
 - model evidence object
@@ -124,6 +126,7 @@ The default feature set is `clean`.
 core                = stable Titanic fields only
 clean               = default; removes uncertain weak proxies
 clean_group_objects = clean plus compact TravelGroupObject candidate features
+clean_group_fate    = clean plus target-safe GroupFateObject candidate features
 full                = exploration mode; includes all provisional proxy signals
 ```
 
@@ -148,6 +151,12 @@ base and adds compact `CompanionGroupObject` fields. It is useful for controlled
 ablation, but it is not the default because current CV evidence is mixed:
 slightly higher repeated-CV accuracy, worse log loss, and no validation
 accuracy gain on the fixed split.
+
+`clean_group_fate` is an experimental feature set. It adds leave-one-out
+group-outcome features from Ticket, Family, and FamilyTicket scopes. It is
+target-safe, but direct logistic modeling currently performs worse than the
+default `clean` feature set, so Group Fate is treated primarily as a rule-mining
+and entity-audit layer.
 
 ## Advanced Features
 
@@ -278,7 +287,8 @@ Passenger
 ├── FamilyTicketGroupObject
 ├── TicketGroupObject
 ├── FareObject
-└── CompanionGroupObject
+├── CompanionGroupObject
+└── GroupFateObject
 ```
 
 `FamilyKey = surname + Pclass` is treated as a weak grouping proxy. It is kept
@@ -315,6 +325,67 @@ reports/survival_by_child_female_companion_pattern.csv
 reports/survival_by_companion_count_bins.csv
 reports/pclass3_child_female_companion_pattern.csv
 reports/travel_group_object_examples.csv
+```
+
+## Group Fate Object
+
+`GroupFateObject` asks a different question from `TicketGroupObject`.
+`TicketGroupObject` describes who traveled together without using `Survived`.
+`GroupFateObject` describes what happened to similar train-fold group members,
+so it must be target-safe.
+
+The implementation uses:
+
+```text
+train rows      = leave-one-out group fate
+validation rows = training-fold group fate only
+test rows       = full-training group fate only
+```
+
+This prevents a passenger's own `Survived` value from becoming their own
+feature.
+
+```text
+GroupFateObject
+├── TicketFateSignal
+├── TicketFateSupportBin
+├── FamilyFateSignal
+├── FamilyFateSupportBin
+├── FamilyTicketFateSignal
+├── FamilyTicketFateSupportBin
+├── PrimaryFateScope
+├── PrimaryFateSignal
+├── PrimaryFateSupportBin
+├── PrimaryFateKnownCount
+└── PrimaryFateSurvivalRate
+```
+
+`PrimaryFateSignal` uses this priority:
+
+```text
+FamilyTicket > Ticket > Family > Unknown
+```
+
+The repeated-CV rule scan found a stable candidate:
+
+```text
+Pclass == 3
+PrimaryFateSignal == all_died
+=> predict non-survivor
+```
+
+This signal is not a universal rule. It is strongly conditioned by `Pclass` and
+`Sex`; for example, first-class women can still survive even when their
+train-mapped group fate is negative. The public-best strategy uses this signal
+only for 3rd-class passengers and only when support is at least 2.
+
+`explore.py` writes:
+
+```text
+reports/survival_by_ticket_fate_signal.csv
+reports/survival_by_family_ticket_fate_signal.csv
+reports/survival_by_primary_fate_signal.csv
+reports/pclass_sex_primary_fate_signal.csv
 ```
 
 ## Ticket Group Object
@@ -362,6 +433,45 @@ reports/shared_ticket_group_summary_by_child_female_pattern.csv
 reports/survival_by_pclass_ticket_composition_type.csv
 reports/survival_by_pclass_ticket_family_pattern.csv
 reports/survival_by_pclass_ticket_child_female_pattern.csv
+```
+
+## Ticket Route Object
+
+`TicketRouteObject` treats ticket identifiers and embarkation ports as a route
+or booking-channel signal. This is separate from `TicketGroupObject`: one
+describes who traveled together, the other describes ticket series and embark
+context.
+
+```text
+TicketRouteObject
+├── TicketPrefix
+├── TicketNumber
+├── TicketNumberBand
+├── Embarked
+├── TicketPrefixEmbarked
+├── TicketNumberBandEmbarked
+└── TicketPrefixPclassEmbarked
+```
+
+Observed route patterns include:
+
+```text
+PC_S              high survival, mostly 1st-class route signal
+CA_S / A_S        very low survival, mostly 3rd-class Southampton signals
+300000_349999_S   low survival numeric ticket band
+10000_19999_S     stronger 1st-class / mid-fare positive pocket
+```
+
+The current route layer does not replace `Pclass`, `Sex`, `Fare`, or
+GroupFateObject. It is used for exploration and narrow rule candidates.
+
+`explore.py` writes:
+
+```text
+reports/survival_by_ticket_prefix_embarked.csv
+reports/survival_by_ticket_number_band_embarked.csv
+reports/survival_by_ticket_prefix_pclass_embarked.csv
+reports/survival_by_pclass_sex_ticket_prefix_embarked.csv
 ```
 
 ## Fare Object
@@ -421,7 +531,7 @@ reports/rule_cv_scores_conservative_hybrid.csv
 reports/rule_cv_summary_conservative_hybrid.csv
 ```
 
-The current first rule-mined candidate is available as:
+The first rule-mined candidate is still available as a rollback baseline:
 
 ```bash
 python optimize_submission.py \
@@ -429,8 +539,331 @@ python optimize_submission.py \
   --output submissions/rule_mined_hybrid.csv
 ```
 
-This strategy is intentionally not the default. It is a candidate for manual
-submission testing because it is more aggressive than `conservative_hybrid`.
+The previous public-best candidate is:
+
+```bash
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_support \
+  --reference-strategy rule_mined_hybrid \
+  --output submissions/rule_mined_group_fate_support.csv
+```
+
+`optimize_submission.py` now defaults to `regime_layer_v3_1309_only`, which
+builds on this previous best. Use `--strategy rule_mined_group_fate_support`
+when you want to compare against the `0.79904` baseline, or
+`--strategy conservative_hybrid` / `--strategy rule_mined_hybrid` when you want
+to compare against safer rollback baselines.
+
+The first post-`0.79904` candidate tested a positive 1st-class correction:
+
+```bash
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_p1_midfare \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/rule_mined_group_fate_p1_midfare.csv
+```
+
+This is not a simple inverse of Group Fate. Directly flipping 1st-class
+`all_survived` group-fate males was weak in train data. The cleaner signal is:
+
+```text
+Pclass == 1
+AgeBin == Adult
+FamilySizeBin == Alone
+FareBinPclass == MidFare_P1
+=> predict survivor
+```
+
+Kaggle result:
+
+```text
+rule_mined_group_fate_p1_midfare: 0.79186
+```
+
+This failed against the `0.79904` best version. The train signal overfit:
+although the rule improved train accuracy, it likely turned too many 1st-class
+adult male non-survivors into survivors on the test set. Keep it as a learning
+case, not as a recommended submission.
+
+The narrower TicketRoute version of that idea was tested as:
+
+```bash
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_ticket_route_10000_s \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/rule_mined_group_fate_ticket_route_10000_s.csv
+```
+
+Rule:
+
+```text
+AgeBin == Adult
+FarePerTicketBinPclass == MidFare_P1
+TicketNumberBandEmbarked == 10000_19999_S
+=> predict survivor
+```
+
+Kaggle result:
+
+```text
+rule_mined_group_fate_ticket_route_10000_s: 0.79665
+```
+
+This flips only PassengerId `1036` relative to the `0.79904` best version, and
+the score dropped by one public-test row. Keep PassengerId `1036` as
+non-survivor in the current best strategy.
+
+The next false-negative rule lab focuses on high-fare 3rd-class mixed-fate
+groups. These are not defaults:
+
+```bash
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_p3_highfare_mixed \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/rule_mined_group_fate_p3_highfare_mixed.csv
+
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_asplund_children \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/rule_mined_group_fate_asplund_children.csv
+
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_ticket_1601 \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/rule_mined_group_fate_ticket_1601.csv
+```
+
+Rules:
+
+```text
+rule_mined_group_fate_p3_highfare_mixed
+  FareBinPclass == HighFare_P3
+  PrimaryFateSignal == mixed
+  => predict survivor
+  flips: 931, 1046, 1066, 1271
+
+rule_mined_group_fate_asplund_children
+  same high-fare mixed group
+  Ticket == 347077
+  Title == Master or Age <= 13
+  => predict survivor
+  flips: 1046, 1271
+
+rule_mined_group_fate_ticket_1601
+  same high-fare mixed group
+  Ticket == 1601
+  => predict survivor
+  flips: 931
+```
+
+This follows the rule-lab principle: TicketRoute and ticket identity are used as
+auxiliary narrowing conditions, not as standalone rules.
+
+## Class Regime Rule Layer
+
+`Pclass` is now treated as a survival regime boundary, not only as one feature
+inside a universal rule. The rule layer is split into separate regimes:
+
+```text
+p3_survival_rescue
+  Find 3rd-class passengers predicted dead by the current best strategy but
+  carrying strong low-class survival evidence.
+
+p1_death_override
+  Find 1st-class passengers predicted alive by the current best strategy but
+  carrying strong high-class death evidence.
+
+p2_holdout
+  Do not force a rule unless a separate 2nd-class pattern is found.
+```
+
+The registry lives in:
+
+```text
+src/regime_rules.py
+```
+
+The first tested regime candidate was:
+
+```text
+p3_master_small_family_rescue
+  Pclass == 3
+  Title == Master
+  FamilySizeBin == SmallFamily
+  => predict survivor
+```
+
+Evidence on train against `rule_mined_group_fate_support`:
+
+```text
+train_count: 10
+train survival rate: 1.0000
+changed current-best predictions: 5
+accuracy delta: +0.0056
+repeated-CV selected folds: 25/25
+```
+
+Kaggle result:
+
+```text
+regime_layer_v1: 0.78947
+```
+
+This failed hard against the `0.79904` current best. The candidate flipped 8
+test passengers from death to survivor; the public score drop is approximately
+`4/418`, which implies about 2 of the flips helped and 6 hurt. The practical
+lesson is that the broad `P3 + Master + SmallFamily` rescue signal is weaker on
+test than the negative GroupFate evidence attached to most of these passengers.
+Keep this as a failed rule-lab case, not as a recommended submission.
+
+Test passengers changed by this candidate:
+
+```text
+913, 972, 1084, 1093, 1136, 1236, 1284, 1309
+```
+
+Reproduce the failed regime-layer candidate without replacing the current best
+default:
+
+```bash
+python optimize_submission.py \
+  --strategy regime_layer_v1 \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/regime_layer_v1.csv
+```
+
+This also writes:
+
+```text
+reports/regime_rule_audit.csv
+```
+
+The narrowed follow-up candidate is:
+
+```text
+p3_master_small_family_no_all_died_rescue
+  Pclass == 3
+  Title == Master
+  FamilySizeBin == SmallFamily
+  no Ticket/Family/FamilyTicket/Primary GroupFateSignal == all_died
+  => predict survivor
+```
+
+Evidence against `rule_mined_group_fate_support`:
+
+```text
+train_count: 9
+train survival rate: 1.0000
+changed current-best train predictions: 5
+accuracy delta: +0.0056
+test changed passengers: 1284, 1309
+```
+
+Generate it with:
+
+```bash
+python optimize_submission.py \
+  --strategy regime_layer_v2 \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/regime_layer_v2.csv
+```
+
+This is a much cleaner A/B test than v1. Because it flips only two public-test
+rows relative to `0.79904`, the public score interpretation is simple:
+
+```text
+both right: 0.80382
+one right, one wrong: 0.79904
+both wrong: 0.79425
+```
+
+Kaggle result:
+
+```text
+regime_layer_v2: 0.79904
+```
+
+This tied the previous best without improving it. Treat it as neutral evidence:
+the narrowed P3 rescue does not hurt, but it also does not justify replacing
+`rule_mined_group_fate_support` by itself.
+
+The v2 tie can be split into two one-passenger A/B candidates:
+
+```bash
+python optimize_submission.py \
+  --strategy regime_layer_v3_1309_only \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/regime_layer_v3_1309_only.csv
+
+python optimize_submission.py \
+  --strategy regime_layer_v3_1284_only \
+  --reference-strategy rule_mined_group_fate_support \
+  --output submissions/regime_layer_v3_1284_only.csv
+```
+
+Signals:
+
+```text
+regime_layer_v3_1309_only
+  flips PassengerId 1309
+  P3 Master small family
+  FamilyTicketFateSignal == all_survived
+
+regime_layer_v3_1284_only
+  flips PassengerId 1284
+  P3 Master small family
+  FamilyTicketFateSignal == mixed
+```
+
+Kaggle result:
+
+```text
+regime_layer_v3_1309_only: 0.80143
+```
+
+This is the current best. It confirms that the all_survived side of the v2 split
+was the useful half. Since v2 tied at `0.79904`, the mixed-fate 1284 side is now
+treated as likely negative unless future evidence says otherwise.
+
+To inspect evidence conflicts directly:
+
+```bash
+python analyze_conflict_matrix.py
+```
+
+Outputs:
+
+```text
+reports/conflict_matrix_summary.csv
+reports/conflict_matrix_examples.csv
+reports/p1_death_override_candidates.csv
+```
+
+To find passengers where the current best predicts death but multiple models
+rank survival probability high:
+
+```bash
+python analyze_model_rescue_candidates.py --probability-threshold 0.60 --min-models 2
+```
+
+Outputs:
+
+```text
+reports/model_rescue_candidates.csv
+reports/model_rescue_all_died_conflicts.csv
+reports/model_rescue_no_all_died_candidates.csv
+reports/model_rescue_all_scores.csv
+```
+
+The split reports are important because the highest model-probability rescue
+candidates often conflict with `all_died` GroupFate evidence. Those should be
+studied as evidence conflicts, not submitted directly.
+
+The 1st-class death override side is intentionally held out for now. Broad
+signals such as older solo 1st-class women looked tempting but reduced train
+accuracy and changed too many test passengers. P1 death rules should stay narrow
+until they match the Isham / Allison-style exception profile rather than a broad
+female-first-class pattern.
 
 ## Cross-Validation
 
@@ -535,7 +968,7 @@ kaggle_score_log.csv
 Current best submitted strategy:
 
 ```text
-rule_mined_hybrid: 0.78708
+regime_layer_v3_1309_only: 0.80143
 ```
 
 For conservative iteration, start from:
@@ -547,7 +980,15 @@ python optimize_submission.py --strategy conservative_hybrid --output submission
 For the current best rule-mined candidate:
 
 ```bash
-python optimize_submission.py --strategy rule_mined_hybrid --output submission.csv
+python optimize_submission.py --output submission.csv
+```
+
+This defaults to `regime_layer_v3_1309_only`. To reproduce the previous best:
+
+```bash
+python optimize_submission.py \
+  --strategy rule_mined_group_fate_support \
+  --output submissions/rule_mined_group_fate_support.csv
 ```
 
 `conservative_hybrid` starts from the gender baseline and only applies high-confidence overrides:
@@ -565,7 +1006,20 @@ submissions/conservative_hybrid.csv
 submissions/child_count_hybrid.csv
 submissions/optimized_hybrid.csv
 submissions/rule_mined_hybrid.csv
+submissions/rule_mined_group_fate_support.csv
+submissions/rule_mined_group_fate_p1_midfare.csv
+submissions/rule_mined_group_fate_ticket_route_10000_s.csv
+submissions/rule_mined_group_fate_p3_highfare_mixed.csv
+submissions/rule_mined_group_fate_asplund_children.csv
+submissions/rule_mined_group_fate_ticket_1601.csv
+submissions/regime_layer_v1.csv
+submissions/regime_p3_master_small_family_rescue.csv
+submissions/regime_layer_v2.csv
+submissions/regime_p3_master_small_family_no_all_died_rescue.csv
+submissions/regime_layer_v3_1309_only.csv
+submissions/regime_layer_v3_1284_only.csv
 reports/submission_strategy_audit.csv
+reports/regime_rule_audit.csv
 reports/submission_override_audit.csv
 reports/submission_strategy_delta_audit.csv
 ```
@@ -586,9 +1040,19 @@ Age is not <= 12
 => predict non-survivor
 ```
 
-It is the current best public score, but it is more aggressive than
-`conservative_hybrid` because it flips a group of 3rd-class low-fare female
-passengers to non-survivor.
+`rule_mined_group_fate_support` builds on `rule_mined_hybrid` and adds a
+GroupFateObject override:
+
+```text
+Pclass == 3
+PrimaryFateSignal == all_died
+PrimaryFateSupportBin in {2, 3+}
+=> predict non-survivor
+```
+
+This is the current best public score. It is more aggressive than
+`rule_mined_hybrid`, but the public leaderboard result suggests that the
+FamilyTicket/Ticket group-fate layer is carrying real signal.
 
 ## Child Group Exploration
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import joblib
 import numpy as np
@@ -334,6 +335,160 @@ def ticket_group_pattern_tables(features: pd.DataFrame) -> dict[str, pd.DataFram
     }
 
 
+def ticket_route_tables(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    return {
+        "survival_by_ticket_prefix_embarked": grouped_survival_rate(
+            features,
+            ["TicketPrefix", "Embarked"],
+        ),
+        "survival_by_ticket_number_band_embarked": grouped_survival_rate(
+            features,
+            ["TicketNumberBand", "Embarked"],
+        ),
+        "survival_by_ticket_prefix_pclass_embarked": grouped_survival_rate(
+            features,
+            ["TicketPrefix", "Pclass", "Embarked"],
+        ),
+        "survival_by_pclass_sex_ticket_prefix_embarked": grouped_survival_rate(
+            features,
+            ["Pclass", "Sex", "TicketPrefixEmbarked"],
+        ),
+    }
+
+
+def cabin_tokens(value: object) -> list[str]:
+    if pd.isna(value):
+        return []
+    return re.findall(r"[A-Za-z]\d*", str(value).upper())
+
+
+def cabin_family_tables(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    out = features.copy()
+    if "FamilyTicketKey" not in out.columns:
+        out["FamilyTicketKey"] = (
+            out["FamilyKey"].astype(str) + "_" + out["TicketNormalized"].astype(str)
+        )
+
+    out["CabinTokens"] = out["Cabin"].map(cabin_tokens)
+    out["CabinTokenCount"] = out["CabinTokens"].map(len)
+    out["CabinNumberBand"] = pd.cut(
+        out["CabinNumber"],
+        bins=[-1, 20, 40, 60, 80, 100, 200],
+        labels=["001_020", "021_040", "041_060", "061_080", "081_100", "101_plus"],
+    ).astype("object").fillna("Unknown")
+
+    cabin_known_by_pclass_sex = (
+        out.groupby(["Pclass", "Sex", "CabinKnown"], dropna=False)["Survived"]
+        .agg(["count", "sum", "mean"])
+        .rename(columns={"mean": "survival_rate"})
+        .reset_index()
+    )
+
+    cabin_deck_by_pclass_sex = (
+        out[out["CabinKnown"].eq(1)]
+        .groupby(["Pclass", "Sex", "Deck"], dropna=False)["Survived"]
+        .agg(["count", "sum", "mean"])
+        .rename(columns={"mean": "survival_rate"})
+        .reset_index()
+    )
+
+    multi_cabin_examples = out[out["CabinTokenCount"].gt(1)][
+        [
+            "PassengerId",
+            "Survived",
+            "Name",
+            "Pclass",
+            "Sex",
+            "FamilySize",
+            "Ticket",
+            "Fare",
+            "Cabin",
+            "CabinTokens",
+            "Deck",
+        ]
+    ].sort_values("PassengerId")
+
+    def infer_table(scope: str, key_col: str) -> pd.DataFrame:
+        grouped = (
+            out.groupby(key_col, dropna=False)
+            .agg(
+                group_size=("PassengerId", "size"),
+                cabin_known_count=("CabinKnown", "sum"),
+                inferred_deck=(
+                    "Deck",
+                    lambda s: (
+                        s[s.ne("Unknown")].mode().iloc[0]
+                        if not s[s.ne("Unknown")].mode().empty
+                        else "Unknown"
+                    ),
+                ),
+            )
+            .reset_index()
+        )
+        merged = out.merge(grouped, on=key_col, how="left")
+        inferred = merged[
+            merged["CabinKnown"].eq(0) & merged["cabin_known_count"].gt(0)
+        ].copy()
+        inferred["InferenceScope"] = scope
+        return inferred[
+            [
+                "InferenceScope",
+                "PassengerId",
+                "Survived",
+                "Name",
+                "Pclass",
+                "Sex",
+                "Age",
+                "FamilySize",
+                "Ticket",
+                "Cabin",
+                key_col,
+                "group_size",
+                "cabin_known_count",
+                "inferred_deck",
+            ]
+        ].rename(columns={key_col: "GroupKey"})
+
+    inferred_from_groups = pd.concat(
+        [
+            infer_table("Ticket", "TicketNormalized"),
+            infer_table("Family", "FamilyKey"),
+            infer_table("FamilyTicket", "FamilyTicketKey"),
+        ],
+        ignore_index=True,
+    )
+
+    cabin_group_rows = []
+    for key, group in out.groupby("FamilyTicketKey", dropna=False):
+        if len(group) <= 1 or group["CabinKnown"].sum() <= 0:
+            continue
+        cabin_group_rows.append(
+            {
+                "FamilyTicketKey": key,
+                "group_size": len(group),
+                "cabin_known_count": int(group["CabinKnown"].sum()),
+                "decks": ",".join(sorted(set(group.loc[group["Deck"].ne("Unknown"), "Deck"]))),
+                "survived": int(group["Survived"].sum()),
+                "survival_rate": group["Survived"].mean(),
+                "names": " | ".join(group["Name"].astype(str).head(6)),
+                "cabins": " | ".join(group["Cabin"].dropna().astype(str).unique()[:4]),
+            }
+        )
+
+    cabin_family_ticket_groups = pd.DataFrame(cabin_group_rows).sort_values(
+        ["group_size", "cabin_known_count"],
+        ascending=[False, False],
+    )
+
+    return {
+        "cabin_known_by_pclass_sex": cabin_known_by_pclass_sex,
+        "cabin_deck_by_pclass_sex": cabin_deck_by_pclass_sex,
+        "multi_cabin_examples": multi_cabin_examples,
+        "missing_cabin_inferred_from_groups": inferred_from_groups,
+        "cabin_family_ticket_groups": cabin_family_ticket_groups,
+    }
+
+
 def travel_group_object_tables(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
     primary_pattern = grouped_survival_rate(
         features,
@@ -406,6 +561,31 @@ def travel_group_object_tables(features: pd.DataFrame) -> dict[str, pd.DataFrame
     }
 
 
+def group_fate_tables(features: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    return {
+        "survival_by_ticket_fate_signal": grouped_survival_rate(
+            features,
+            ["TicketFateSignal", "TicketFateSupportBin"],
+        ),
+        "survival_by_family_fate_signal": grouped_survival_rate(
+            features,
+            ["FamilyFateSignal", "FamilyFateSupportBin"],
+        ),
+        "survival_by_family_ticket_fate_signal": grouped_survival_rate(
+            features,
+            ["FamilyTicketFateSignal", "FamilyTicketFateSupportBin"],
+        ),
+        "survival_by_primary_fate_signal": grouped_survival_rate(
+            features,
+            ["PrimaryFateScope", "PrimaryFateSignal", "PrimaryFateSupportBin"],
+        ),
+        "pclass_sex_primary_fate_signal": grouped_survival_rate(
+            features,
+            ["Pclass", "Sex", "PrimaryFateScope", "PrimaryFateSignal"],
+        ),
+    }
+
+
 def cluster_summary(features: pd.DataFrame, clusters: pd.DataFrame) -> pd.DataFrame:
     merged = features.merge(clusters[["PassengerId", "ClusterId"]], on="PassengerId", how="left")
     grouped = merged.groupby("ClusterId", dropna=False)
@@ -427,7 +607,10 @@ def cluster_summary(features: pd.DataFrame, clusters: pd.DataFrame) -> pd.DataFr
 def main() -> None:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     train_df = pd.read_csv(DATA_PATH)
-    features = build_feature_frame(train_df)
+    features = build_feature_frame(
+        train_df,
+        group_fate_y=train_df["Survived"].astype(int),
+    )
     features = add_child_group_features(features)
     features["Survived"] = train_df["Survived"].astype(int)
 
@@ -618,6 +801,58 @@ def main() -> None:
         )
     )
 
+    ticket_route = ticket_route_tables(features)
+    for name, table in ticket_route.items():
+        table.to_csv(REPORTS_DIR / f"{name}.csv")
+
+    report_parts.append(
+        section(
+            "Survival by Ticket Prefix and Embarked",
+            ticket_route["survival_by_ticket_prefix_embarked"],
+        )
+    )
+    report_parts.append(
+        section(
+            "Survival by Ticket Number Band and Embarked",
+            ticket_route["survival_by_ticket_number_band_embarked"],
+        )
+    )
+    report_parts.append(
+        section(
+            "Survival by Ticket Prefix, Pclass, and Embarked",
+            ticket_route["survival_by_ticket_prefix_pclass_embarked"],
+        )
+    )
+
+    cabin_tables = cabin_family_tables(features)
+    for name, table in cabin_tables.items():
+        table.to_csv(REPORTS_DIR / f"{name}.csv", index=False)
+
+    report_parts.append(
+        section(
+            "Cabin Known by Pclass and Sex",
+            cabin_tables["cabin_known_by_pclass_sex"],
+        )
+    )
+    report_parts.append(
+        section(
+            "Known Cabin Deck by Pclass and Sex",
+            cabin_tables["cabin_deck_by_pclass_sex"],
+        )
+    )
+    report_parts.append(
+        section(
+            "Missing Cabin Inferred from Groups",
+            cabin_tables["missing_cabin_inferred_from_groups"].head(40),
+        )
+    )
+    report_parts.append(
+        section(
+            "Cabin Family Ticket Groups",
+            cabin_tables["cabin_family_ticket_groups"].head(40),
+        )
+    )
+
     travel_group_tables = travel_group_object_tables(features)
     for name, table in travel_group_tables.items():
         table.to_csv(REPORTS_DIR / f"{name}.csv")
@@ -638,6 +873,29 @@ def main() -> None:
         section(
             "Pclass 3 Child/Female Companion Pattern",
             travel_group_tables["pclass3_child_female_companion_pattern"],
+        )
+    )
+
+    fate_tables = group_fate_tables(features)
+    for name, table in fate_tables.items():
+        table.to_csv(REPORTS_DIR / f"{name}.csv")
+
+    report_parts.append(
+        section(
+            "Survival by Ticket Fate Signal",
+            fate_tables["survival_by_ticket_fate_signal"],
+        )
+    )
+    report_parts.append(
+        section(
+            "Survival by Family Ticket Fate Signal",
+            fate_tables["survival_by_family_ticket_fate_signal"],
+        )
+    )
+    report_parts.append(
+        section(
+            "Survival by Primary Fate Signal",
+            fate_tables["survival_by_primary_fate_signal"],
         )
     )
 

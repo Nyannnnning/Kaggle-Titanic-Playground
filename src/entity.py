@@ -211,13 +211,50 @@ def passenger_entity(
                 ),
             }
         ),
+        "group_fate": compact_dict(
+            {
+                "TicketFateKnown": feature_row.get("TicketFateKnown"),
+                "TicketFateKnownCount": feature_row.get("TicketFateKnownCount"),
+                "TicketFateSurvivalRate": feature_row.get("TicketFateSurvivalRate"),
+                "TicketFateSignal": feature_row.get("TicketFateSignal"),
+                "FamilyFateKnown": feature_row.get("FamilyFateKnown"),
+                "FamilyFateKnownCount": feature_row.get("FamilyFateKnownCount"),
+                "FamilyFateSurvivalRate": feature_row.get("FamilyFateSurvivalRate"),
+                "FamilyFateSignal": feature_row.get("FamilyFateSignal"),
+                "FamilyTicketFateKnown": feature_row.get("FamilyTicketFateKnown"),
+                "FamilyTicketFateKnownCount": feature_row.get(
+                    "FamilyTicketFateKnownCount"
+                ),
+                "FamilyTicketFateSurvivalRate": feature_row.get(
+                    "FamilyTicketFateSurvivalRate"
+                ),
+                "FamilyTicketFateSignal": feature_row.get(
+                    "FamilyTicketFateSignal"
+                ),
+                "PrimaryFateScope": feature_row.get("PrimaryFateScope"),
+                "PrimaryFateKnownCount": feature_row.get("PrimaryFateKnownCount"),
+                "PrimaryFateSurvivalRate": feature_row.get(
+                    "PrimaryFateSurvivalRate"
+                ),
+                "PrimaryFateSignal": feature_row.get("PrimaryFateSignal"),
+            }
+        ),
         "ticket": compact_dict(
             {
                 "Pclass": feature_row.get("Pclass"),
                 "Ticket": raw_row.get("Ticket"),
                 "TicketPrefix": feature_row.get("TicketPrefix"),
+                "TicketNumber": feature_row.get("TicketNumber"),
+                "TicketNumberBand": feature_row.get("TicketNumberBand"),
                 "TicketGroupSize": feature_row.get("TicketGroupSize"),
                 "Embarked": feature_row.get("Embarked"),
+                "TicketPrefixEmbarked": feature_row.get("TicketPrefixEmbarked"),
+                "TicketNumberBandEmbarked": feature_row.get(
+                    "TicketNumberBandEmbarked"
+                ),
+                "TicketPrefixPclassEmbarked": feature_row.get(
+                    "TicketPrefixPclassEmbarked"
+                ),
             }
         ),
         "ticket_group": compact_dict(

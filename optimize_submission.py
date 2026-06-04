@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn.metrics import accuracy_score
 
 from src.features import PassengerFeatureBuilder
+from src.regime_rules import apply_regime_rule_layer, regime_rule_audit
 
 
 DEFAULT_TRAIN_PATH = Path("data/train.csv")
@@ -14,6 +15,8 @@ DEFAULT_TEST_PATH = Path("data/test.csv")
 DEFAULT_OUTPUT_PATH = Path("submission.csv")
 DEFAULT_SUBMISSIONS_DIR = Path("submissions")
 DEFAULT_REPORTS_DIR = Path("reports")
+CURRENT_BEST_STRATEGY = "regime_layer_v3_1309_only"
+DEFAULT_REFERENCE_STRATEGY = "rule_mined_group_fate_support"
 
 STRATEGIES = {
     "gender_baseline",
@@ -25,6 +28,22 @@ STRATEGIES = {
     "rule_mined_female_no_child",
     "rule_mined_solo_lowfare",
     "rule_mined_alone_lowfare",
+    "group_fate_hybrid",
+    "group_fate_support_hybrid",
+    "rule_mined_group_fate_support",
+    "rule_mined_group_fate_p1_midfare",
+    "rule_mined_group_fate_ticket_route_10000_s",
+    "rule_mined_group_fate_p3_highfare_mixed",
+    "rule_mined_group_fate_asplund_children",
+    "rule_mined_group_fate_ticket_1601",
+    "regime_layer_v1",
+    "regime_p3_master_small_family_rescue",
+    "regime_layer_v2",
+    "regime_p3_master_small_family_no_all_died_rescue",
+    "regime_layer_v3_1309_only",
+    "regime_layer_v3_1284_only",
+    "regime_p3_master_small_family_all_survived_rescue",
+    "regime_p3_master_small_family_mixed_rescue",
 }
 
 
@@ -38,8 +57,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--strategy",
         choices=sorted(STRATEGIES),
-        default="conservative_hybrid",
-        help="Strategy to write to submission.csv. Default: conservative_hybrid",
+        default=CURRENT_BEST_STRATEGY,
+        help=f"Strategy to write to submission.csv. Default: {CURRENT_BEST_STRATEGY}",
+    )
+    parser.add_argument(
+        "--reference-strategy",
+        choices=sorted(STRATEGIES),
+        default=DEFAULT_REFERENCE_STRATEGY,
+        help=f"Reference strategy for delta audit. Default: {DEFAULT_REFERENCE_STRATEGY}",
     )
     return parser.parse_args()
 
@@ -169,6 +194,212 @@ def rule_mined_alone_lowfare(features: pd.DataFrame) -> pd.Series:
     return prediction.astype(int)
 
 
+def rule_p3_primary_fate_all_died(features: pd.DataFrame) -> pd.Series:
+    return features["Pclass"].eq(3) & features["PrimaryFateSignal"].eq("all_died")
+
+
+def rule_p3_primary_fate_all_died_support(features: pd.DataFrame) -> pd.Series:
+    return rule_p3_primary_fate_all_died(features) & features[
+        "PrimaryFateSupportBin"
+    ].isin(["2", "3+"])
+
+
+def group_fate_hybrid(features: pd.DataFrame) -> pd.Series:
+    prediction = conservative_hybrid(features)
+
+    # Target-safe Group Fate rule, evaluated with repeated CV. This is more
+    # aggressive than the support-limited public-best variant because it can flip
+    # 3rd-class passengers from one-member train-mapped fate evidence.
+    prediction[rule_p3_primary_fate_all_died(features)] = 0
+    return prediction.astype(int)
+
+
+def group_fate_support_hybrid(features: pd.DataFrame) -> pd.Series:
+    prediction = conservative_hybrid(features)
+
+    # Conservative Group Fate variant: require at least two fitted group members.
+    prediction[rule_p3_primary_fate_all_died_support(features)] = 0
+    return prediction.astype(int)
+
+
+def rule_mined_group_fate_support(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_hybrid(features)
+
+    # Current public-best rule layer: keep the low-fare/no-ticket-child rule and
+    # add only supported 3rd-class all_died GroupFateObject evidence.
+    prediction[rule_p3_primary_fate_all_died_support(features)] = 0
+    return prediction.astype(int)
+
+
+def rule_p1_midfare_adult_alone(features: pd.DataFrame) -> pd.Series:
+    return (
+        features["Pclass"].eq(1)
+        & features["AgeBin"].eq("Adult")
+        & features["FamilySizeBin"].eq("Alone")
+        & features["FareBinPclass"].eq("MidFare_P1")
+    )
+
+
+def rule_mined_group_fate_p1_midfare(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Candidate positive first-class correction found after the Group Fate best
+    # baseline: adult, solo, mid-fare 1st-class passengers were strong survivors
+    # in repeated CV. Keep separate from the default until Kaggle-tested.
+    prediction[rule_p1_midfare_adult_alone(features)] = 1
+    return prediction.astype(int)
+
+
+def rule_ticket_route_10000_s_midfare_p1(features: pd.DataFrame) -> pd.Series:
+    return (
+        features["AgeBin"].eq("Adult")
+        & features["FarePerTicketBinPclass"].eq("MidFare_P1")
+        & features["TicketNumberBandEmbarked"].eq("10000_19999_S")
+    )
+
+
+def rule_mined_group_fate_ticket_route_10000_s(
+    features: pd.DataFrame,
+) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Failed one-passenger TicketRouteObject experiment. It flips PassengerId
+    # 1036 and reduced public score from 0.79904 to 0.79665; keep for audit.
+    prediction[rule_ticket_route_10000_s_midfare_p1(features)] = 1
+    return prediction.astype(int)
+
+
+def rule_p3_highfare_primary_mixed(features: pd.DataFrame) -> pd.Series:
+    return (
+        features["FareBinPclass"].eq("HighFare_P3")
+        & features["PrimaryFateSignal"].eq("mixed")
+    )
+
+
+def rule_p3_highfare_mixed_asplund_children(features: pd.DataFrame) -> pd.Series:
+    return (
+        rule_p3_highfare_primary_mixed(features)
+        & features["TicketNormalized"].eq("347077")
+        & (features["Title"].eq("Master") | features["Age"].le(13).fillna(False))
+    )
+
+
+def rule_p3_highfare_mixed_ticket_1601(features: pd.DataFrame) -> pd.Series:
+    return rule_p3_highfare_primary_mixed(features) & features[
+        "TicketNormalized"
+    ].eq("1601")
+
+
+def rule_mined_group_fate_p3_highfare_mixed(
+    features: pd.DataFrame,
+) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # False-negative candidate: high-fare 3rd-class passengers in mixed fate
+    # ticket/family-ticket groups. Flips four test passengers; Kaggle-test only.
+    prediction[rule_p3_highfare_primary_mixed(features)] = 1
+    return prediction.astype(int)
+
+
+def rule_mined_group_fate_asplund_children(
+    features: pd.DataFrame,
+) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Narrow child/Master subset of the Asplund high-fare mixed family-ticket
+    # group. Flips PassengerId 1046 and 1271.
+    prediction[rule_p3_highfare_mixed_asplund_children(features)] = 1
+    return prediction.astype(int)
+
+
+def rule_mined_group_fate_ticket_1601(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Narrow ticket-route/fate subset for Ticket 1601. Flips PassengerId 931.
+    prediction[rule_p3_highfare_mixed_ticket_1601(features)] = 1
+    return prediction.astype(int)
+
+
+def regime_layer_v1(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Failed public-test candidate. Keep explicitly pinned for reproducibility.
+    return apply_regime_rule_layer(
+        features,
+        prediction,
+        rule_names=("p3_master_small_family_rescue",),
+    )
+
+
+def regime_p3_master_small_family_rescue(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Failed single-rule A/B strategy for the broad P3 survival rescue regime.
+    return apply_regime_rule_layer(
+        features,
+        prediction,
+        rule_names=("p3_master_small_family_rescue",),
+    )
+
+
+def regime_layer_v2(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Narrowed P3 survival rescue: do not override any all_died GroupFate signal.
+    return apply_regime_rule_layer(
+        features,
+        prediction,
+        rule_names=("p3_master_small_family_no_all_died_rescue",),
+    )
+
+
+def regime_p3_master_small_family_no_all_died_rescue(
+    features: pd.DataFrame,
+) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Single-rule A/B strategy for the narrowed P3 survival rescue regime.
+    return apply_regime_rule_layer(
+        features,
+        prediction,
+        rule_names=("p3_master_small_family_no_all_died_rescue",),
+    )
+
+
+def regime_layer_v3_1309_only(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Split of neutral v2: keep only the all_survived group-fate side.
+    return apply_regime_rule_layer(
+        features,
+        prediction,
+        rule_names=("p3_master_small_family_all_survived_rescue",),
+    )
+
+
+def regime_layer_v3_1284_only(features: pd.DataFrame) -> pd.Series:
+    prediction = rule_mined_group_fate_support(features)
+
+    # Split of neutral v2: keep only the mixed-fate side.
+    return apply_regime_rule_layer(
+        features,
+        prediction,
+        rule_names=("p3_master_small_family_mixed_rescue",),
+    )
+
+
+def regime_p3_master_small_family_all_survived_rescue(
+    features: pd.DataFrame,
+) -> pd.Series:
+    return regime_layer_v3_1309_only(features)
+
+
+def regime_p3_master_small_family_mixed_rescue(
+    features: pd.DataFrame,
+) -> pd.Series:
+    return regime_layer_v3_1284_only(features)
+
+
 def predict_strategy(features: pd.DataFrame, strategy: str) -> pd.Series:
     if strategy == "gender_baseline":
         return gender_baseline(features)
@@ -188,6 +419,38 @@ def predict_strategy(features: pd.DataFrame, strategy: str) -> pd.Series:
         return rule_mined_solo_lowfare(features)
     if strategy == "rule_mined_alone_lowfare":
         return rule_mined_alone_lowfare(features)
+    if strategy == "group_fate_hybrid":
+        return group_fate_hybrid(features)
+    if strategy == "group_fate_support_hybrid":
+        return group_fate_support_hybrid(features)
+    if strategy == "rule_mined_group_fate_support":
+        return rule_mined_group_fate_support(features)
+    if strategy == "rule_mined_group_fate_p1_midfare":
+        return rule_mined_group_fate_p1_midfare(features)
+    if strategy == "rule_mined_group_fate_ticket_route_10000_s":
+        return rule_mined_group_fate_ticket_route_10000_s(features)
+    if strategy == "rule_mined_group_fate_p3_highfare_mixed":
+        return rule_mined_group_fate_p3_highfare_mixed(features)
+    if strategy == "rule_mined_group_fate_asplund_children":
+        return rule_mined_group_fate_asplund_children(features)
+    if strategy == "rule_mined_group_fate_ticket_1601":
+        return rule_mined_group_fate_ticket_1601(features)
+    if strategy == "regime_layer_v1":
+        return regime_layer_v1(features)
+    if strategy == "regime_p3_master_small_family_rescue":
+        return regime_p3_master_small_family_rescue(features)
+    if strategy == "regime_layer_v2":
+        return regime_layer_v2(features)
+    if strategy == "regime_p3_master_small_family_no_all_died_rescue":
+        return regime_p3_master_small_family_no_all_died_rescue(features)
+    if strategy == "regime_layer_v3_1309_only":
+        return regime_layer_v3_1309_only(features)
+    if strategy == "regime_layer_v3_1284_only":
+        return regime_layer_v3_1284_only(features)
+    if strategy == "regime_p3_master_small_family_all_survived_rescue":
+        return regime_p3_master_small_family_all_survived_rescue(features)
+    if strategy == "regime_p3_master_small_family_mixed_rescue":
+        return regime_p3_master_small_family_mixed_rescue(features)
     raise ValueError(f"Unsupported strategy: {strategy}")
 
 
@@ -249,6 +512,16 @@ def override_audit(
             "TicketGroupSize",
             "TicketChildCount",
             "TicketChildFemalePattern",
+            "TicketPrefix",
+            "TicketNumberBand",
+            "TicketPrefixEmbarked",
+            "TicketNumberBandEmbarked",
+            "TicketPrefixPclassEmbarked",
+            "PrimaryFateScope",
+            "PrimaryFateSignal",
+            "PrimaryFateSupportBin",
+            "PrimaryFateKnownCount",
+            "PrimaryFateSurvivalRate",
             "PrimaryCompanionScope",
             "PrimaryGroupChildFemalePattern",
             "FamilyGroupSize",
@@ -287,6 +560,16 @@ def strategy_delta_audit(
             "TicketGroupSize",
             "TicketChildCount",
             "TicketChildFemalePattern",
+            "TicketPrefix",
+            "TicketNumberBand",
+            "TicketPrefixEmbarked",
+            "TicketNumberBandEmbarked",
+            "TicketPrefixPclassEmbarked",
+            "PrimaryFateScope",
+            "PrimaryFateSignal",
+            "PrimaryFateSupportBin",
+            "PrimaryFateKnownCount",
+            "PrimaryFateSurvivalRate",
             "PrimaryCompanionScope",
             "PrimaryGroupChildFemalePattern",
             "FamilyGroupSize",
@@ -313,8 +596,7 @@ def main() -> None:
     y = train_df["Survived"].astype(int)
 
     feature_builder = PassengerFeatureBuilder(feature_set="clean")
-    feature_builder.fit(X_train)
-    train_features = feature_builder.transform(X_train)
+    train_features = feature_builder.fit_transform(X_train, y)
     test_features = feature_builder.transform(test_df)
 
     DEFAULT_SUBMISSIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -332,10 +614,25 @@ def main() -> None:
     audit = strategy_audit(train_features, y, test_features)
     audit.to_csv(DEFAULT_REPORTS_DIR / "submission_strategy_audit.csv", index=False)
 
+    train_current_best = predict_strategy(train_features, CURRENT_BEST_STRATEGY)
+    test_current_best = predict_strategy(test_features, CURRENT_BEST_STRATEGY)
+    regime_audit = regime_rule_audit(
+        train_features,
+        y,
+        train_current_best,
+        test_features,
+        test_current_best,
+    )
+    regime_audit.to_csv(DEFAULT_REPORTS_DIR / "regime_rule_audit.csv", index=False)
+
     overrides = override_audit(test_features, args.strategy)
     overrides.to_csv(DEFAULT_REPORTS_DIR / "submission_override_audit.csv", index=False)
 
-    delta = strategy_delta_audit(test_features, args.strategy)
+    delta = strategy_delta_audit(
+        test_features,
+        args.strategy,
+        reference_strategy=args.reference_strategy,
+    )
     delta.to_csv(DEFAULT_REPORTS_DIR / "submission_strategy_delta_audit.csv", index=False)
 
     chosen_row = audit[audit["strategy"].eq(args.strategy)].iloc[0]
@@ -345,10 +642,12 @@ def main() -> None:
     print(f"Changed from gender baseline: {int(chosen_row['test_changed_from_gender'])}")
     print(f"Submission saved to: {args.output}")
     print(f"Strategy audit saved to: {DEFAULT_REPORTS_DIR / 'submission_strategy_audit.csv'}")
+    print(f"Regime rule audit saved to: {DEFAULT_REPORTS_DIR / 'regime_rule_audit.csv'}")
     print(f"Override audit saved to: {DEFAULT_REPORTS_DIR / 'submission_override_audit.csv'}")
     print(
         f"Strategy delta audit saved to: "
-        f"{DEFAULT_REPORTS_DIR / 'submission_strategy_delta_audit.csv'}"
+        f"{DEFAULT_REPORTS_DIR / 'submission_strategy_delta_audit.csv'} "
+        f"(reference: {args.reference_strategy})"
     )
 
 

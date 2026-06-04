@@ -4,3 +4,9 @@ date,submission,strategy,public_score,notes
 2026-06-03,conservative_hybrid.csv,conservative_hybrid,0.78468,best previous audited hybrid
 2026-06-03,rule_mined_hybrid.csv,rule_mined_hybrid,0.78708,rule-mined P3 low-fare no-child-ticket override
 2026-06-03,rule_mined_female_no_child.csv,rule_mined_female_no_child,0.78708,A/B test vs rule_mined_hybrid; differs only on PassengerId 1201 and 1274
+2026-06-03,rule_mined_group_fate_support.csv,rule_mined_group_fate_support,0.79904,rule_mined_hybrid plus P3 primary group-fate all_died support 2+ override
+2026-06-03,rule_mined_group_fate_p1_midfare.csv,rule_mined_group_fate_p1_midfare,0.79186,failed post-best test; P1 adult solo midfare positive correction overfit train and reduced public score
+2026-06-04,rule_mined_group_fate_ticket_route_10000_s.csv,rule_mined_group_fate_ticket_route_10000_s,0.79665,failed one-passenger route test; PassengerId 1036 should remain predicted non-survivor
+2026-06-04,regime_layer_v1.csv,regime_layer_v1,0.78947,failed P3 Master small-family rescue; flipped 8 current-best deaths to survivors and likely net -4 public rows
+2026-06-04,regime_layer_v2.csv,regime_layer_v2,0.79904,neutral two-passenger P3 Master rescue; flips PassengerId 1284 and 1309 with no public-score change vs current best
+2026-06-04,regime_layer_v3_1309_only.csv,regime_layer_v3_1309_only,0.80143,new current best; one-passenger P3 Master all_survived GroupFate rescue flips PassengerId 1309

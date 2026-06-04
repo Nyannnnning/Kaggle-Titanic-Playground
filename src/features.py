@@ -9,6 +9,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 
 from .age import add_age_object_features, fit_age_pclass_stats
 from .fare import add_fare_object_features
+from .group_fate import add_group_fate_features, fit_group_fate_stats
 from .name_object import add_name_object_features
 from .name_origin import NAME_ORIGIN_COLUMNS, add_name_origin_features
 from .spatial import SPATIAL_OUTPUT_COLUMNS, add_spatial_features
@@ -123,6 +124,14 @@ TICKET_GROUP_COMPOSITION_CATEGORICAL_FEATURES = {
     "TicketFemaleRatioBin",
 }
 
+TICKET_ROUTE_CATEGORICAL_FEATURES = [
+    "TicketPrefix",
+    "TicketNumberBand",
+    "TicketPrefixEmbarked",
+    "TicketNumberBandEmbarked",
+    "TicketPrefixPclassEmbarked",
+]
+
 TRAVEL_GROUP_NUMERIC_FEATURES = [
     "SelfChildProxy",
     "SelfFemaleProxy",
@@ -225,6 +234,64 @@ COMPACT_TRAVEL_GROUP_CATEGORICAL_FEATURES = [
     "FamilyTicketChildFemalePattern",
 ]
 
+GROUP_FATE_NUMERIC_FEATURES = [
+    "TicketFateKnown",
+    "TicketFateKnownCount",
+    "TicketFateSurvivorCount",
+    "TicketFateSurvivalRate",
+    "TicketFateSignalValue",
+    "FamilyFateKnown",
+    "FamilyFateKnownCount",
+    "FamilyFateSurvivorCount",
+    "FamilyFateSurvivalRate",
+    "FamilyFateSignalValue",
+    "FamilyTicketFateKnown",
+    "FamilyTicketFateKnownCount",
+    "FamilyTicketFateSurvivorCount",
+    "FamilyTicketFateSurvivalRate",
+    "FamilyTicketFateSignalValue",
+    "PrimaryFateKnown",
+    "PrimaryFateKnownCount",
+    "PrimaryFateSurvivorCount",
+    "PrimaryFateSurvivalRate",
+    "PrimaryFateSignalValue",
+]
+
+GROUP_FATE_CATEGORICAL_FEATURES = [
+    "TicketFateSignal",
+    "TicketFateSupportBin",
+    "FamilyFateSignal",
+    "FamilyFateSupportBin",
+    "FamilyTicketFateSignal",
+    "FamilyTicketFateSupportBin",
+    "PrimaryFateScope",
+    "PrimaryFateSignal",
+    "PrimaryFateSupportBin",
+]
+
+COMPACT_GROUP_FATE_NUMERIC_FEATURES = [
+    "TicketFateKnown",
+    "TicketFateKnownCount",
+    "TicketFateSurvivalRate",
+    "TicketFateSignalValue",
+    "FamilyTicketFateKnown",
+    "FamilyTicketFateKnownCount",
+    "FamilyTicketFateSurvivalRate",
+    "FamilyTicketFateSignalValue",
+    "PrimaryFateKnown",
+    "PrimaryFateKnownCount",
+    "PrimaryFateSurvivalRate",
+    "PrimaryFateSignalValue",
+]
+
+COMPACT_GROUP_FATE_CATEGORICAL_FEATURES = [
+    "TicketFateSignal",
+    "FamilyTicketFateSignal",
+    "PrimaryFateScope",
+    "PrimaryFateSignal",
+    "PrimaryFateSupportBin",
+]
+
 SPATIAL_NUMERIC_FEATURES = [
     "DeckOrdinal",
     "ApproxVerticalDistanceToBoatDeck",
@@ -251,6 +318,7 @@ ORIGIN_NUMERIC_FEATURES = [
 NUMERIC_FEATURES = (
     BASE_NUMERIC_FEATURES
     + TRAVEL_GROUP_NUMERIC_FEATURES
+    + GROUP_FATE_NUMERIC_FEATURES
     + SPATIAL_NUMERIC_FEATURES
     + BINARY_FEATURES
     + ORIGIN_NUMERIC_FEATURES
@@ -269,7 +337,7 @@ CATEGORICAL_FEATURES = [
     "InferredPrimaryLanguage",
     "EnglishComprehensionProxy",
     "LanguageBarrierRisk",
-] + TRAVEL_GROUP_CATEGORICAL_FEATURES
+] + TICKET_ROUTE_CATEGORICAL_FEATURES + TRAVEL_GROUP_CATEGORICAL_FEATURES + GROUP_FATE_CATEGORICAL_FEATURES
 
 ALL_MODEL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
@@ -287,7 +355,7 @@ CORE_CATEGORICAL_FEATURES = [
     "FareBin",
     "FarePerTicketBin",
     "FamilySizeBin",
-    "TicketPrefix",
+    *TICKET_ROUTE_CATEGORICAL_FEATURES,
     "TicketCompositionType",
     "TicketFamilyPattern",
     "TicketChildFemalePattern",
@@ -324,7 +392,7 @@ CLEAN_CATEGORICAL_FEATURES = [
     "FareBin",
     "FarePerTicketBin",
     "FamilySizeBin",
-    "TicketPrefix",
+    *TICKET_ROUTE_CATEGORICAL_FEATURES,
     "TravelPartyType",
     "FareObjectInterpretation",
     "SexPclass",
@@ -364,6 +432,11 @@ FEATURE_SETS = {
         "numeric": CLEAN_NUMERIC_FEATURES + COMPACT_TRAVEL_GROUP_NUMERIC_FEATURES,
         "categorical": CLEAN_CATEGORICAL_FEATURES + COMPACT_TRAVEL_GROUP_CATEGORICAL_FEATURES,
         "description": "Clean set plus compact entity-style family/ticket companion object features.",
+    },
+    "clean_group_fate": {
+        "numeric": CLEAN_NUMERIC_FEATURES + COMPACT_GROUP_FATE_NUMERIC_FEATURES,
+        "categorical": CLEAN_CATEGORICAL_FEATURES + COMPACT_GROUP_FATE_CATEGORICAL_FEATURES,
+        "description": "Clean set plus target-safe leave-one-out group fate features.",
     },
     "full": {
         "numeric": NUMERIC_FEATURES,
@@ -407,6 +480,39 @@ def ticket_prefix(ticket: object) -> str:
     if pieces[0].isdigit():
         return "NUMERIC"
     return pieces[0]
+
+
+def ticket_number(ticket: object) -> float:
+    ticket_value = normalize_ticket(ticket)
+    numbers = re.findall(r"\d+", ticket_value)
+    if not numbers:
+        return np.nan
+    return float(int(numbers[-1]))
+
+
+def ticket_number_band(number: object) -> str:
+    if pd.isna(number):
+        return "NoNumber"
+    value = int(number)
+    if value < 1000:
+        return "00000_00999"
+    if value < 10000:
+        return "01000_09999"
+    if value < 20000:
+        return "10000_19999"
+    if value < 50000:
+        return "20000_49999"
+    if value < 100000:
+        return "50000_99999"
+    if value < 200000:
+        return "100000_199999"
+    if value < 300000:
+        return "200000_299999"
+    if value < 350000:
+        return "300000_349999"
+    if value < 400000:
+        return "350000_399999"
+    return "400000_plus"
 
 
 def age_bin(age: object) -> str:
@@ -481,9 +587,24 @@ def add_core_titanic_features(df: pd.DataFrame) -> pd.DataFrame:
     if "Ticket" in out.columns:
         out["TicketNormalized"] = out["Ticket"].map(normalize_ticket)
         out["TicketPrefix"] = out["Ticket"].map(ticket_prefix)
+        out["TicketNumber"] = out["Ticket"].map(ticket_number)
     else:
         out["TicketNormalized"] = "UNKNOWN"
         out["TicketPrefix"] = "UNKNOWN"
+        out["TicketNumber"] = np.nan
+
+    out["TicketNumberBand"] = out["TicketNumber"].map(ticket_number_band)
+    embarked_value = out["Embarked"].fillna("Unknown").astype(str)
+    pclass_value = out["Pclass"].fillna("Unknown").astype(str)
+    out["TicketPrefixEmbarked"] = (
+        out["TicketPrefix"].astype(str) + "_" + embarked_value
+    )
+    out["TicketNumberBandEmbarked"] = (
+        out["TicketNumberBand"].astype(str) + "_" + embarked_value
+    )
+    out["TicketPrefixPclassEmbarked"] = (
+        out["TicketPrefix"].astype(str) + "_P" + pclass_value + "_" + embarked_value
+    )
 
     out["FamilyKey"] = out["Surname"].astype(str) + "_" + out["Pclass"].astype(str)
     out["AgeBin"] = out["Age"].map(age_bin) if "Age" in out.columns else "AgeMissing"
@@ -573,6 +694,8 @@ def build_feature_frame(
     age_pclass_stats: dict | None = None,
     ticket_group_stats: dict | None = None,
     travel_group_stats: dict | None = None,
+    group_fate_stats: dict | None = None,
+    group_fate_y: pd.Series | np.ndarray | None = None,
 ) -> pd.DataFrame:
     out = add_core_titanic_features(df)
     out = add_name_object_features(out)
@@ -599,6 +722,11 @@ def build_feature_frame(
     out["FamilyGroupSize"] = out["FamilyKey"].map(family_group_size_map).fillna(1)
     out = add_ticket_group_features(out, ticket_group_stats=ticket_group_stats)
     out = add_travel_group_features(out, travel_group_stats=travel_group_stats)
+    out = add_group_fate_features(
+        out,
+        group_fate_stats=group_fate_stats,
+        y=group_fate_y,
+    )
     out = add_fare_object_features(
         out,
         ticket_group_size_map=ticket_group_size_map,
@@ -630,6 +758,7 @@ class PassengerFeatureBuilder(BaseEstimator, TransformerMixin):
         self.ticket_group_size_map_ = frame["TicketNormalized"].value_counts().to_dict()
         self.ticket_group_stats_ = fit_ticket_group_stats(frame)
         self.travel_group_stats_ = fit_travel_group_stats(frame)
+        self.group_fate_stats_ = fit_group_fate_stats(frame, y)
         self.family_group_size_map_ = frame["FamilyKey"].value_counts().to_dict()
         family_ticket_key = frame["FamilyKey"].astype(str) + "_" + frame[
             "TicketNormalized"
@@ -637,6 +766,27 @@ class PassengerFeatureBuilder(BaseEstimator, TransformerMixin):
         self.family_ticket_group_size_map_ = family_ticket_key.value_counts().to_dict()
         self.age_pclass_stats_ = fit_age_pclass_stats(frame)
         return self
+
+    def fit_transform(self, X: pd.DataFrame, y=None, **fit_params) -> pd.DataFrame:
+        self.fit(X, y)
+        return build_feature_frame(
+            X,
+            derived_dir=self.derived_dir,
+            external_dir=self.external_dir,
+            feature_set=self.feature_set,
+            ticket_group_size_map=getattr(self, "ticket_group_size_map_", None),
+            family_group_size_map=getattr(self, "family_group_size_map_", None),
+            family_ticket_group_size_map=getattr(
+                self,
+                "family_ticket_group_size_map_",
+                None,
+            ),
+            age_pclass_stats=getattr(self, "age_pclass_stats_", None),
+            ticket_group_stats=getattr(self, "ticket_group_stats_", None),
+            travel_group_stats=getattr(self, "travel_group_stats_", None),
+            group_fate_stats=getattr(self, "group_fate_stats_", None),
+            group_fate_y=y,
+        )
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         return build_feature_frame(
@@ -654,4 +804,5 @@ class PassengerFeatureBuilder(BaseEstimator, TransformerMixin):
             age_pclass_stats=getattr(self, "age_pclass_stats_", None),
             ticket_group_stats=getattr(self, "ticket_group_stats_", None),
             travel_group_stats=getattr(self, "travel_group_stats_", None),
+            group_fate_stats=getattr(self, "group_fate_stats_", None),
         )

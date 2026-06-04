@@ -43,10 +43,22 @@ RULE_FEATURES = [
     "CompanionAccompanyingChildCountBin",
     "CompanionAccompanyingAdultMaleCountBin",
     "TicketCompositionType",
+    "TicketPrefix",
+    "TicketNumberBand",
+    "TicketPrefixEmbarked",
+    "TicketNumberBandEmbarked",
+    "TicketPrefixPclassEmbarked",
     "TicketFamilyPattern",
     "TicketChildFemalePattern",
     "TicketChildCountBin",
     "TicketFemaleCountBin",
+    "TicketFateSignal",
+    "TicketFateSupportBin",
+    "FamilyTicketFateSignal",
+    "FamilyTicketFateSupportBin",
+    "PrimaryFateScope",
+    "PrimaryFateSignal",
+    "PrimaryFateSupportBin",
     "TravelPartyType",
     "FareObjectInterpretation",
     "FareBin",
@@ -294,10 +306,10 @@ def candidate_full_stats(
 def fold_features(
     X_train: pd.DataFrame,
     X_valid: pd.DataFrame,
+    y_train: pd.Series,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     builder = PassengerFeatureBuilder(feature_set="full")
-    builder.fit(X_train)
-    train_features = add_rule_columns(builder.transform(X_train))
+    train_features = add_rule_columns(builder.fit_transform(X_train, y_train))
     valid_features = add_rule_columns(builder.transform(X_valid))
     return train_features, valid_features
 
@@ -324,7 +336,7 @@ def cv_rule_stats(
             X_valid = X.iloc[valid_idx].reset_index(drop=True)
             y_train = y.iloc[train_idx].reset_index(drop=True)
             y_valid = y.iloc[valid_idx].reset_index(drop=True)
-            train_features, valid_features = fold_features(X_train, X_valid)
+            train_features, valid_features = fold_features(X_train, X_valid, y_train)
             train_base = predict_strategy(train_features, baseline_strategy)
             valid_base = predict_strategy(valid_features, baseline_strategy)
             valid_base_accuracy = accuracy_score(y_valid, valid_base)
@@ -464,8 +476,7 @@ def main() -> None:
     y = train_df["Survived"].astype(int)
 
     builder = PassengerFeatureBuilder(feature_set="full")
-    builder.fit(X)
-    features = add_rule_columns(builder.transform(X))
+    features = add_rule_columns(builder.fit_transform(X, y))
 
     atoms = generate_atoms(features, min_support=args.min_support)
     conditions = generate_conditions(
